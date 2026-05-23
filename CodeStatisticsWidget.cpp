@@ -11,11 +11,14 @@
 #include <QDirIterator>
 #include <QHeaderView>
 #include <QDialog>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QTableWidgetItem>
 
 CodeStatisticsWidget::CodeStatisticsWidget(QWidget* parent)
 {
 	this->setWindowTitle("Code Statistics");
-	this->setMinimumWidth(900);
+	this->setMinimumWidth(1000);
 	this->setMinimumHeight(700);
 
 	this->setStyleSheet(
@@ -26,21 +29,21 @@ CodeStatisticsWidget::CodeStatisticsWidget(QWidget* parent)
 
 	QTableWidget* table = new QTableWidget(this);
 	QHeaderView* header = table->horizontalHeader();
-	header->setSectionResizeMode(QHeaderView::Interactive);
+	//header->setSectionResizeMode(QHeaderView::Interactive);
+	header->setSectionResizeMode(QHeaderView::Stretch);
 	table->setObjectName("tableWidget");
 	table->clear();
-	int colCount = 8;
+
+	int colCount = 9;
 	table->setColumnCount(colCount);
+	int colWidth = this->geometry().width() / colCount;
 	for (int i = 0; i < colCount; ++i)
 	{
-		table->setColumnWidth(i, this->geometry().width() / colCount);
+		table->setColumnWidth(i, colWidth);
 	}
-	table->setHorizontalHeaderLabels({ "文件名", "类型", "行数", "代码行数", "注释行数", "空白行数","字符数", "文件大小" });
-	// 路径
+	table->setHorizontalHeaderLabels({ "文件名", "类型", "行数", "代码行数", "注释行数", "空白行数","字符数", "文件大小", "路径"});
 	table->setRowCount(0);
-	// 禁用表格的编辑功能，让其变为只读
-	table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-
+	table->setEditTriggers(QAbstractItemView::NoEditTriggers); // 设置表格为只读模式
 
 	QLabel* fileCountLabel = new QLabel("文件数:", this);
 	QLineEdit* fileCountEdit = new QLineEdit(this);
@@ -148,6 +151,38 @@ CodeStatisticsWidget::CodeStatisticsWidget(QWidget* parent)
 	connect(clearButton, &QPushButton::clicked, this, &CodeStatisticsWidget::onClearClicked);
 	connect(startButton, &QPushButton::clicked, this, &CodeStatisticsWidget::calculateStatistics);
 	connect(addButton, &QPushButton::clicked, this, &CodeStatisticsWidget::onAddFilterClicked);
+
+
+	connect(table, &QTableWidget::cellClicked, this, [=](int row, int column) {
+
+		//用户点击的是 相对路径 这一列触发打开目录
+		if (column == colCount - 1) 
+		{
+			// 获取相对路径
+			QTableWidgetItem* item = table->item(row, column);
+			if (!item) return;
+			QString relativePath = item->text();
+
+			QLineEdit* dirPathEdit = this->findChild<QLineEdit*>("dirPathEdit");
+			if (!dirPathEdit) return;
+			QString baseDir = dirPathEdit->text().trimmed();
+			if (baseDir.isEmpty()) return;
+
+			//文件的绝对路径
+			QDir root(baseDir);
+			QString absoluteFilePath = root.absoluteFilePath(relativePath);
+
+			//获取该文件所在的“父目录”路径
+			QFileInfo fileInfo(absoluteFilePath);
+			QString folderPath = fileInfo.absolutePath(); // 文件所在的文件夹路径
+
+            // 转换为本地路径格式（自动适配 Windows 的 \ 符号和 Linux/Mac 的 / 符号）
+			QString localFolder = QDir::toNativeSeparators(folderPath);
+
+			// 拉起 Windows 资源管理器
+			QDesktopServices::openUrl(QUrl::fromLocalFile(localFolder));
+		}
+	});
 }
 
 void CodeStatisticsWidget::calculateStatistics()
@@ -157,23 +192,23 @@ void CodeStatisticsWidget::calculateStatistics()
 	tableWidget->setRowCount(0);
 	QString path = this->findChild<QLineEdit*>("dirPathEdit")->text().trimmed();
 	if (path.isEmpty()) {
-		QMessageBox::warning(this, "警告", "请先选择一个有效的文件夹路径");
+		QMessageBox::warning(this, "警告", "请先选择一个有效的文件夹路径!");
 		return;
 	}
 
 	QDir dirPath(path);
 	if (!dirPath.exists())
 	{
-		QMessageBox::warning(this, "警告", "文件路径不存在");
+		QMessageBox::warning(this, "警告", "文件路径不存在!");
 		return;
 	}
 
-	size file_count = 0;
-	size bytes_count = 0;
-	size total_lines = 0;
-	size total_code_lines = 0;
-	size total_comment_lines = 0;
-	size total_blank_lines = 0;
+	uint64_t file_count = 0;
+	uint64_t bytes_count = 0;
+	uint64_t total_lines = 0;
+	uint64_t total_code_lines = 0;
+	uint64_t total_comment_lines = 0;
+	uint64_t total_blank_lines = 0;
 
 	QLineEdit* filterEdit = this->findChild<QLineEdit*>("filterEdit");
 	QString filterText = filterEdit->text().trimmed();
@@ -231,7 +266,7 @@ void CodeStatisticsWidget::calculateStatistics()
 
 			QString trimmedLine = line.trimmed();
 
-			// 优先判定空行（这个最简单，不受任何注释影响）
+			// 优先判定空行
 			if (trimmedLine.isEmpty())
 			{
 				blank_lines++;
@@ -316,7 +351,7 @@ void CodeStatisticsWidget::calculateStatistics()
 		int currentRow = tableWidget->rowCount();
 		tableWidget->insertRow(currentRow);
 
-		// 依次填入："文件名", "类型", "行数", "代码行数", "注释行数", "空白行数","字符数", "文件大小"
+		// "文件名", "类型", "行数", "代码行数", "注释行数", "空白行数","字符数", "文件大小"
 		tableWidget->setItem(currentRow, 0, new QTableWidgetItem(fileInfo.fileName()));
 		tableWidget->setItem(currentRow, 1, new QTableWidgetItem(fileInfo.suffix()));
 		tableWidget->setItem(currentRow, 2, new QTableWidgetItem(QString::number(file_lines)));
@@ -324,9 +359,16 @@ void CodeStatisticsWidget::calculateStatistics()
 		tableWidget->setItem(currentRow, 4, new QTableWidgetItem(QString::number(comment_lines)));
 		tableWidget->setItem(currentRow, 5, new QTableWidgetItem(QString::number(blank_lines)));
 		tableWidget->setItem(currentRow, 6, new QTableWidgetItem(QString::number(file_chars)));
-		// 计算文件大小，转换为 KB 并保留两位小数显示
+		// 文件大小，转换为 KB 并保留两位小数显示
 		double kbSize = fileInfo.size() / 1024.0;
 		tableWidget->setItem(currentRow, 7, new QTableWidgetItem(QString::asprintf("%.2f KB", kbSize)));
+
+		// 显示相对于选定目录的相对路径
+		QString relativePath = QDir(path).relativeFilePath(fileInfo.filePath());
+		QTableWidgetItem* pathItem = new QTableWidgetItem(relativePath);
+		pathItem->setForeground(QBrush(QColor(30, 144, 255)));
+		pathItem->setToolTip("点击打开该文件所在文件夹");
+		tableWidget->setItem(currentRow, 8, pathItem);
 	}
 
 	this->findChild<QLineEdit*>("fileCountEdit")->setText(QString::number(file_count));

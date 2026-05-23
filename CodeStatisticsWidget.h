@@ -5,7 +5,7 @@ class CodeStatisticsWidget : public QWidget
 {
 	Q_OBJECT
 public:
-	using size = unsigned long long;
+	using uint64_t = unsigned long long;
 	CodeStatisticsWidget(QWidget* parent = nullptr);
 	~CodeStatisticsWidget() {}
 
